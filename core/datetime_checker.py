@@ -1,4 +1,5 @@
 import pandas as pd
+from datetime import timedelta
 
 class DatesTimeChecker:
     def __init__(self, file_name):
@@ -67,11 +68,76 @@ class DatesTimeChecker:
                 if procedure_date != consent_date and procedure_time >= consent_time:
                     self.log_error(index, col)
 
+    def check_sample_collection_dates(self):
+        for visit_num in [1, 2]:
+            hosp_date_col = f'V{visit_num}_01_SVSTDTC'
+            sample_cols = [f'V{visit_num}_{"09" if visit_num == 1 else "08"}_{str(i).zfill(2)}_PCDTC' for i in range(1, 7)]
+
+            for index, row in self.df.iterrows():
+                hosp_date = pd.to_datetime(row[hosp_date_col]).date()
+                for sample_col in sample_cols:
+                    if pd.isnull(row[sample_col]):
+                        continue  # Skip if the field is NaN
+                    sample_date = pd.to_datetime(row[sample_col]).date()
+                    if sample_date - hosp_date != timedelta(days=1):
+                        self.log_error(index, sample_col)
+
+    def check_first_sample_collection(self, hospitalization_num, section_num, section2_num):
+        drug_admin_col = f'V{hospitalization_num}_0{section_num}_EXDTC'
+        first_sample_col = f'V{hospitalization_num}_0{section2_num}_01_PCDTC'
+
+        for index, row in self.df.iterrows():
+            if pd.isnull(row[first_sample_col]) or pd.isnull(row[drug_admin_col]):
+                continue  # Skip if either field is NaN
+            first_sample_time = pd.to_datetime(row[first_sample_col])
+            drug_admin_time = pd.to_datetime(row[drug_admin_col])
+
+            if not (first_sample_time.date() == drug_admin_time.date() and first_sample_time < drug_admin_time):
+                self.log_error(index, first_sample_col)
+
+    def check_sample_intervals(self, hospitalization_num, section_num, section2_num):
+        drug_admin_col = f'V{hospitalization_num}_0{section_num}_EXDTC'
+        sample_intervals = {
+            f'V{hospitalization_num}_0{section2_num}_02_PCDTC': (timedelta(hours=3), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_03_PCDTC': (timedelta(hours=6), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_04_PCDTC': (timedelta(hours=8), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_05_PCDTC': (timedelta(hours=9), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_06_PCDTC': (timedelta(hours=10), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_07_PCDTC': (timedelta(hours=10, minutes=30), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_08_PCDTC': (timedelta(hours=11), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_09_PCDTC': (timedelta(hours=11, minutes=30), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_10_PCDTC': (timedelta(hours=12), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_11_PCDTC': (timedelta(hours=13), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_12_PCDTC': (timedelta(hours=14), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_13_PCDTC': (timedelta(hours=16), timedelta(minutes=2)),
+            f'V{hospitalization_num}_0{section2_num}_14_PCDTC': (timedelta(hours=24), timedelta(minutes=5)),
+            f'V{hospitalization_num}_0{section2_num}_15_PCDTC': (timedelta(hours=36), timedelta(minutes=10)),
+            f'V{hospitalization_num}_0{section2_num}_16_PCDTC': (timedelta(hours=48), timedelta(minutes=10)),
+            f'V{hospitalization_num}_0{section2_num}_17_PCDTC': (timedelta(hours=60), timedelta(minutes=10)),
+            f'V{hospitalization_num}_0{section2_num}_18_PCDTC': (timedelta(hours=72), timedelta(minutes=10)),
+        }
+
+        for index, row in self.df.iterrows():
+            drug_admin_time = pd.to_datetime(row[drug_admin_col])
+            for sample_col, (expected_interval, deviation) in sample_intervals.items():
+                if pd.isnull(row[sample_col]):
+                    continue  # Skip if the field is NaN
+                sample_time = pd.to_datetime(row[sample_col])
+                lower_bound = drug_admin_time + expected_interval - deviation
+                upper_bound = drug_admin_time + expected_interval + deviation
+                if not (lower_bound <= sample_time <= upper_bound):
+                    self.log_error(index, sample_col)
+
     def perform_checks(self):
         self.check_dates(1)
         self.check_dates(2)
         self.check_drug_intolerance_assessment_dates()
         self.check_screening_procedure_dates()
+        self.check_sample_collection_dates()
+        self.check_sample_intervals(hospitalization_num=1, section_num=8, section2_num=9)
+        self.check_sample_intervals(hospitalization_num=2, section_num=7, section2_num=8)
+        self.check_first_sample_collection(hospitalization_num=1, section_num=8, section2_num=9)
+        self.check_first_sample_collection(hospitalization_num=2, section_num=7, section2_num=8)
 
         if self.errors:
             error_df = self.filter_errors()
