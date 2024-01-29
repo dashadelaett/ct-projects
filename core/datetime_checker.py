@@ -51,7 +51,7 @@ class DatesTimeChecker:
                 if assessment_date <= drug_date:
                     self.log_error(index, assessment_date_col)
 
-    def check_screening_procedure_dates(self):
+    def check_screening_procedure_dates_to_consent(self):
         consent_date_col = 'V0_01_RFICDTC'
         procedure_cols = ['V0_02_MBDTC', 'V0_05_VSDTC', 'V0_06_PEDTC', 'V0_07_EGDTC', 'V0_08_LBDTC',
                           'V0_09_LBDTC', 'V0_10_LBDTC', 'V0_11_ISDTC', 'V0_12_LBDTC', 'V0_13_LBDTC',
@@ -128,12 +128,42 @@ class DatesTimeChecker:
                 if not (lower_bound <= sample_time <= upper_bound):
                     self.log_error(index, sample_col)
 
+    def check_screening_procedure_dates_time(self):
+        groups = {
+            'covid': ['V0_02_MBDTC'],
+            'jvp': ['V0_05_VSDTC', 'V0_06_PEDTC'],
+            'ecg': ['V0_07_EGDTC'],
+            'blood_work': ['V0_08_LBDTC', 'V0_09_LBDTC', 'V0_11_ISDTC', 'V0_15_PDDTC'],
+            'pee_pee': ['V0_10_LBDTC', 'V0_12_LBDTC', 'V0_13_LBDTC'],
+            'alcohol': ['V0_14_LBDTC']
+        }
+
+        for index, row in self.df.iterrows():
+            sample_dates = {}
+            for group, cols in groups.items():
+                group_dates = set()
+                for col in cols:
+                    if pd.isnull(row[col]):
+                        continue  # Skip if the field is NaN
+                    date_time = pd.to_datetime(row[col])  # Consider only the date part
+                    group_dates.add(date_time)
+
+                for date in group_dates:
+                    if date in sample_dates and sample_dates[date] != group:
+                        print(f"Row {index}: Overlap in date {date} between {group} and {sample_dates[date]}")
+                        for col in cols:
+                            if pd.to_datetime(row[col]) == date:
+                                self.log_error(index, col)
+                    sample_dates[date] = group
+            
+
     def perform_checks(self):
         self.check_dates(1)
         self.check_dates(2)
         self.check_drug_intolerance_assessment_dates()
-        self.check_screening_procedure_dates()
+        self.check_screening_procedure_dates_to_consent()
         self.check_sample_collection_dates()
+        self.check_screening_procedure_dates_time()
         self.check_sample_intervals(hospitalization_num=1, section_num=8, section2_num=9)
         self.check_sample_intervals(hospitalization_num=2, section_num=7, section2_num=8)
         self.check_first_sample_collection(hospitalization_num=1, section_num=8, section2_num=9)
