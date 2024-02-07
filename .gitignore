@@ -2,3 +2,6 @@
 core/.DS_Store
 data/.DS_Store
 lira.xlsx
+*.pyc
+*.xlsx
+error_report.xlsx
